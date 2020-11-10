@@ -1,0 +1,54 @@
+#!/usr/bin/env python3
+from datetime import datetime
+from typing import List,Tuple,NoReturn
+from subprocess import run
+from time import sleep
+from argparse import ArgumentParser
+
+MINUTES_SLEEP:int=5
+
+def next_weekday(weekday:int,hour:int,minutes:int)->datetime:
+    current:datetime = datetime.now()
+    if current.weekday()>weekday:
+        weekday+=7
+    weekday-=current.weekday()
+    return datetime(current.year,current.month,current.day+weekday,hour,minutes)
+
+def read_event(event:str)->datetime:
+    parts:List[str]=event.split(':')
+    return next_weekday(int(parts[0]),int(parts[1]),int(parts[2]))
+
+def set_dnd(enabled:bool)->NoReturn:
+    run(['gsettings','set','org.gnome.desktop.notifications','show-banners',str(not enabled).lower()],check=True)
+
+def main():
+    parser:ArgumentParser=ArgumentParser()
+    parser.add_argument('events',type=str,help='A txt file with the events to use to set dnd')
+    args=parser.parse_args()
+    with open(args.events) as f:
+        lines: List[str] = f.readlines()
+    while True:
+        execute(lines)
+        sleep(MINUTES_SLEEP*60)
+
+def execute(lines:List[str]):
+    events: List[Tuple[datetime, datetime]] = []
+    for line in lines:
+        if '#' in line:
+            line=line[:line.find('#')]
+        line=line.strip()
+        if len(line)==0:
+            continue
+        pieces:List[str]=line.split(' ')
+        events.append((read_event(pieces[0]),read_event(pieces[1])))
+
+    current = datetime.now()
+    for event in events:
+        end=event[1].replace(minute=event[1].minute+5)
+        if event[0] <= current < event[1]:
+            set_dnd(True)
+        elif event[1] <= current <= end:
+            set_dnd(False)
+
+if __name__=='__main__':
+    main()
