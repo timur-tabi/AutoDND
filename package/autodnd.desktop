@@ -1,0 +1,8 @@
+[Desktop Entry]
+Version=0.1
+Type=Application
+Categories=Utility;
+Terminal=false
+Exec=/usr/bin/autodnd
+Name=Auto Do not Disturb
+Icon=/usr/share/icons/hicolor/192x192/autodnd.png

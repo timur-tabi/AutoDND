@@ -1,0 +1,102 @@
+#!/usr/bin/env python3
+from datetime import datetime,timedelta
+from typing import List,Tuple,NoReturn,Optional
+from subprocess import run
+from time import sleep
+from os import environ,mkdir
+from os.path import join,exists
+from argparse import ArgumentParser,Namespace
+
+debug=False
+
+def next_weekday(weekday:int,start:datetime,end:datetime)->Tuple[datetime,datetime]:
+    current:datetime=get_now()
+    delta:int = weekday-current.weekday()
+    if delta<0 or (delta==0 and end<=current):
+        delta+=7
+    return start.replace(day=start.day+delta),end.replace(day=end.day+delta)
+
+def create_datetime(time:str)->datetime:
+    current:datetime=get_now()
+    parts: List[str] = time.split(':')
+    return current.replace(hour=int(parts[0]),minute=int(parts[1]))
+
+def read_days(event:str)->List[Tuple[datetime,datetime]]:
+    parts:List[str]=event.split(' ')
+    days:List[int]=[int(a) for a in parts[0].split(',')]
+    result:List[Tuple[datetime,datetime]]=[]
+    start:datetime=create_datetime(parts[1])
+    end:datetime=create_datetime(parts[2])
+    if end<start:
+        end:datetime=end.replace(day=end.day+1)
+    for day in days:
+        result.append(next_weekday(day,start,end))
+    return result
+
+def set_dnd(enabled:bool)->NoReturn:
+    run(['gsettings','set','org.gnome.desktop.notifications','show-banners',str(not enabled).lower()],check=True)
+
+def parse_lines(lines:List[str])->List[Tuple[datetime,datetime]]:
+    events:List[Tuple[datetime,datetime]]=[]
+    for line in lines:
+        if '#' in line:
+            line = line[:line.find('#')]
+        line = line.strip()
+        if len(line) == 0:
+            continue
+        events.extend(read_days(line))
+    return events
+
+def print_events(events:List[Tuple[datetime,datetime]])->NoReturn:
+    for event in events:
+        print(event[0],event[1])
+
+def get_now()->datetime:
+    return datetime.now().replace(second=0,microsecond=0)
+
+def main():
+    global debug
+    parser:ArgumentParser=ArgumentParser()
+    parser.add_argument('-d','--debug',action='store_true',default=False)
+    args:Namespace=parser.parse_args()
+    debug=args.debug
+
+    folder:str=join(environ['HOME'],'.config','autodnd')
+    if not exists(folder):
+        mkdir(folder)
+    file:str=join(folder,'config.txt')
+    if not exists(file):
+        open(file,'w').close()
+    with open(file) as f:
+        lines: List[str] = f.readlines()
+
+    while True:
+        events: List[Tuple[datetime, datetime]] = parse_lines(lines)
+        if debug:
+            print_events(events)
+        delta:timedelta=execute(events)
+        sleep_time:int=delta.seconds+60*60*24*delta.days
+        if debug:
+            print('Time until next event:',f'{delta}')
+        sleep(sleep_time)
+
+def execute(events:List[Tuple[datetime,datetime]])->timedelta:
+    if len(events)==0:
+        exit(0)
+    next_event:Optional[datetime]=None
+    current = get_now()
+    for event in events:
+        end=event[1]+timedelta(minutes=1)
+        if event[0] <= current < event[1]:
+            set_dnd(True)
+        elif event[1] <= current <= end:
+            set_dnd(False)
+
+        if event[0]>current and (next_event is None or event[0]-current<next_event-current):
+            next_event=event[0]
+        if event[1]>current and (next_event is None or event[1]-current<next_event-current):
+            next_event=event[1]
+    return (next_event-datetime.now())+timedelta(seconds=5)
+
+if __name__=='__main__':
+    main()
